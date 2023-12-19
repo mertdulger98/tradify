@@ -3,9 +3,9 @@ from backtesting_opt import *
 import slack_sdk
 from slack_sdk.errors import SlackApiError
 
-def send_slack_message(body):
+def send_slack_message(body,TOKEN):
     # Initialize the Slack client
-    client = slack_sdk.WebClient(token="xoxb-4078811355153-6348770012323-hwup0fhCSlqZRUsiMtHoxExw")
+    client = slack_sdk.WebClient(token=TOKEN)
 
     # Send a message to a channel
     try:
