@@ -206,6 +206,105 @@ class PairsTrading:
 
         return df
 
+    def latest_signal(self, pair):
+        s1 = pair[0]
+        s2 = pair[1]
+        df = self.getData([s1, s2])
+
+        S1 = df[s1]
+        S2 = df[s2]
+
+        if self.approach == "log":
+            S1 = np.log(S1)
+            S2 = np.log(S2)
+            S1 = sm.add_constant(S1)
+            results = sm.OLS(S2, S1).fit()
+            S1 = S1[s1]
+            b = results.params[s1]
+            spread = S2 - b * S1
+            zsc = self.zscore(spread)
+
+        # devam ediceksin
+
+    def signal(self, pair):
+        s1 = pair[0]
+        s2 = pair[1]
+        df = self.getData([s1, s2])
+
+        S1 = df[s1]
+        S2 = df[s2]
+
+
+        S1 = np.log(S1)
+        S2 = np.log(S2)
+        S1 = sm.add_constant(S1)
+        results = sm.OLS(S2, S1).fit()
+        S1 = S1[s1]
+        b = results.params[s1]
+        spread = S2 - b * S1
+
+        kf = KalmanFilter(
+            transition_matrices=[1],
+            observation_matrices=[1],
+            initial_state_mean=0,
+            initial_state_covariance=1,
+            observation_covariance=1,
+            transition_covariance=0.01,
+        )
+        state_means, state_cov = kf.filter(spread)
+        state_means, state_std = state_means.squeeze(), np.std(
+            state_cov.squeeze()
+        )
+        ma = (spread).rolling(window=self.window, center=False).mean()
+        zsc = (ma - state_means) / state_std
+
+
+
+        df['zscore'] = zsc
+        df['spread']= spread
+        df['z_shift'] = df['zscore'].shift(1)
+
+        df['EntrySignal'] = np.nan
+        df['ExitSignal'] = np.nan
+        df[f'{s1}_position'] = np.nan
+        df[f'{s2}_position'] = np.nan
+
+
+        df=df.reset_index()
+        current_position = None
+        for index, row in df.iterrows():
+            zs = row['zscore']
+            zs_p = row['z_shift']
+
+            if zs < self.zscore_treshold and zs_p >= self.zscore_treshold and current_position is None:
+                current_position = 'long'
+                if self.shifted_signal:
+                    df.at[index + 1, f'{s1}_position'] = 'long'
+                    df.at[index + 1, f'{s2}_position'] = 'short'
+                else:
+                    df.at[index, f'{s1}_position'] = 'long'
+                    df.at[index, f'{s2}_position'] = 'short'
+                df.at[index, 'EntrySignal'] = 'LongEntry'
+
+
+            elif zs > -self.zscore_treshold and zs_p <= -self.zscore_treshold and current_position is None:
+                current_position = 'short'
+                if self.shifted_signal:
+                    df.at[index + 1, f'{s1}_position'] = 'short'
+                    df.at[index + 1, f'{s2}_position'] = 'long'
+                else:
+                    df.at[index, f'{s1}_position'] = 'short'
+                    df.at[index, f'{s2}_position'] = 'long'
+                df.at[index, 'EntrySignal'] = 'ShortEntry'
+
+            if ((np.abs(zs) < 0.01) or ((zs_p > 0) and (zs < 0)) or (
+                    (zs_p < 0) and (zs > 0))) and current_position is not None:
+                df.at[index, 'ExitSignal'] = 'Exit'
+                df.at[index, f'{s1}_position'] = 'cover'
+                df.at[index, f'{s2}_position'] = 'cover'
+                current_position = None
+
+        return df
     def show(self, pair):
 
         s1 = pair[0]
